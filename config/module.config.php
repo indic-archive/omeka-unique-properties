@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace DedupProperties;
+namespace UniqueProperties;
 
 return [
     'view_manager' => [
@@ -18,9 +18,9 @@ return [
         ],
     ],
 
-    'dedupproperties' => [
+    'uniqueproperties' => [
         'config' => [
-            'dedup_properties' => [],
+            'unique_properties' => [],
         ],
     ],
 ];

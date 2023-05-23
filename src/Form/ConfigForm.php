@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace DedupProperties\Form;
+namespace UniqueProperties\Form;
 
 use Laminas\Form\Form;
 use Omeka\Form\Element\PropertySelect;
@@ -12,7 +12,7 @@ class ConfigForm extends Form
     public function init(): void
     {
         $this->add([
-            'name' => 'dedup_properties',
+            'name' => 'unique_properties',
             'type' => PropertySelect::class,
             'attributes' => [
                 'id' => 'remove-property-values',

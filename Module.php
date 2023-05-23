@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace DedupProperties;
+namespace UniqueProperties;
 
 if (!class_exists(\Generic\AbstractModule::class)) {
     require file_exists(dirname(__DIR__) . '/Generic/AbstractModule.php')
@@ -54,7 +54,7 @@ class Module extends AbstractModule
         if ($request->getOperation() == 'create' || $request->getOperation() == 'update') {
             $itemId = (int) $request->getId();
             $data = $request->getContent();
-            $propIds = $settings->get('dedup_properties');
+            $propIds = $settings->get('unique_properties');
 
             $allowedProps = array();
             foreach ($propIds as $propId) {
