@@ -142,41 +142,4 @@ SQL;
             }
         }
     }
-
-    public function handleConfigForm(AbstractController $controller)
-    {
-        $config = $this->getConfig();
-        $space = strtolower(static::NAMESPACE);
-        if (empty($config[$space]['config'])) {
-            return true;
-        }
-
-        $services = $this->getServiceLocator();
-        $formManager = $services->get('FormElementManager');
-        $formClass = static::NAMESPACE . '\Form\ConfigForm';
-        if (!$formManager->has($formClass)) {
-            return true;
-        }
-
-        $params = $controller->getRequest()->getPost();
-
-        $form = $formManager->get($formClass);
-        $form->init();
-        $form->setData($params);
-        if (!$form->isValid()) {
-            $controller->messenger()->addErrors($form->getMessages());
-            return false;
-        }
-
-        $params = $form->getData();
-        $settings = $services->get('Omeka\Settings');
-
-        $defaultSettings = $config[$space]['config'];
-        $params = array_intersect_key($params, $defaultSettings);
-        foreach ($params as $name => $value) {
-            $settings->set($name, $value);
-        }
-
-        return true;
-    }
 }
