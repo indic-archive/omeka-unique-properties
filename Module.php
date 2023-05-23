@@ -13,7 +13,6 @@ if (!class_exists(\Generic\AbstractModule::class)) {
 use Generic\AbstractModule;
 use Laminas\EventManager\Event;
 use Laminas\Mvc\Controller\AbstractController;
-use Laminas\View\Renderer\PhpRenderer;
 use Laminas\EventManager\SharedEventManagerInterface;
 use Omeka\Stdlib\Message;
 use Omeka\Mvc\Controller\Plugin\Messenger;
@@ -80,17 +79,17 @@ class Module extends AbstractModule
                 }
             }
 
-            $concatPropIds = array();
-            for ($i = 0; $i < count($itemPropIDs) && $i < count($propValues); $i++) {
-                $concatPropIds[] = $propValues[$i] . '|' . $itemPropIDs[$i];
-            }
-            $logger->info(new Message(print_r($itemId, true)));
-            $logger->info(new Message(print_r($itemPropIDs, true)));
-            $logger->info(new Message(print_r($propValues, true)));
-            $logger->info(new Message(print_r($concatPropIds, true)));
+            // Convert property-ids, property-values into json
+            // This allows us to load this into a derived table in MySQL
+            $jsonPairs = json_encode(array_map(function ($value, $property_id) {
+                return ['value' => $value, 'property_id' => $property_id];
+            }, $propValues, $itemPropIDs), JSON_UNESCAPED_UNICODE);
+            // $logger->info(new Message(print_r($jsonPairs, true)));
 
             $services = $this->getServiceLocator();
             $connection = $services->get('Omeka\Connection');
+
+            // Check if same property-id, property-value exists in any other items.
             $sql = <<<'SQL'
 SELECT
     CONCAT(
@@ -110,17 +109,29 @@ WHERE
     AND `value`.`resource_id` <> :id
     AND `value`.`property_id` IN (:property_ids)
     AND `resource`.`resource_type` = 'Omeka\\Entity\\Item'
-    AND CONCAT_WS('|', `value`.`value`, `value`.`property_id`) IN (:concatenated_prop_ids_values)
+    AND EXISTS (
+        SELECT 1
+        FROM JSON_TABLE(
+            :json_pairs,
+            "$[*]" COLUMNS (
+                value_prop VARCHAR(255) CHARACTER SET 'utf8mb4' COLLATE 'utf8mb4_unicode_ci' PATH "$.value",
+                property_id INT PATH "$.property_id"
+            )
+        ) derived
+        WHERE
+            derived.value_prop = value.value
+            AND derived.property_id = value.property_id
+    )
 SQL;
             $stmt = $connection->executeQuery($sql, [
                 'id' => $itemId,
                 'property_ids' => $itemPropIDs,
                 'property_values' => $propValues,
-                'concatenated_prop_ids_values' => $concatPropIds,
-            ],[
+                'json_pairs' => $jsonPairs,
+            ], [
                 'property_ids' => \Doctrine\DBAL\Connection::PARAM_STR_ARRAY,
                 'property_values' => \Doctrine\DBAL\Connection::PARAM_STR_ARRAY,
-                'concatenated_prop_ids_values' => \Doctrine\DBAL\Connection::PARAM_STR_ARRAY,
+                'json_pairs' => \PDO::PARAM_STR,
             ]);
             $results = $stmt->fetchAll();
             $logger->info(new Message(print_r($results, true)));
