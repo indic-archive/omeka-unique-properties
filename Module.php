@@ -12,7 +12,6 @@ if (!class_exists(\Generic\AbstractModule::class)) {
 
 use Generic\AbstractModule;
 use Laminas\EventManager\Event;
-use Laminas\Mvc\Controller\AbstractController;
 use Laminas\EventManager\SharedEventManagerInterface;
 use Omeka\Stdlib\Message;
 use Omeka\Mvc\Controller\Plugin\Messenger;
@@ -45,52 +44,54 @@ class Module extends AbstractModule
 
     public function dedupAction(Event $event): void
     {
+        $request = $event->getParam('request');
+        // Ignore other requests
+        if ($request->getOperation() != 'create' && $request->getOperation() != 'update') {
+            return;
+        }
+
         $serviceLocator = $this->getServiceLocator();
-        $logger = $serviceLocator->get('Omeka\Logger');
         $settings = $serviceLocator->get('Omeka\Settings');
         $messenger = new Messenger;
 
-        $request = $event->getParam('request');
-        if ($request->getOperation() == 'create' || $request->getOperation() == 'update') {
-            $itemId = (int) $request->getId();
-            $data = $request->getContent();
-            $propIds = $settings->get('unique_properties');
+        $itemId = (int) $request->getId();
+        $data = $request->getContent();
+        $propIds = $settings->get('unique_properties');
 
-            $allowedProps = array();
-            foreach ($propIds as $propId) {
-                $allowedProps[$propId] = true;
-            }
+        $allowedProps = array();
+        foreach ($propIds as $propId) {
+            $allowedProps[$propId] = true;
+        }
 
-            $itemPropIDs = array();
-            // Fetch the property values from this request.
-            $propValues = array();
-            foreach ($data as $key => $value) {
-                if (is_array($value)) {
-                    foreach ($value as $innerKey => $innerValue) {
-                        if (isset($innerValue['property_id']) && !empty($innerValue['@value'])) {
-                            // ignore property ids that are not matching
-                            if (!$allowedProps[$innerValue['property_id']]) {
-                                continue;
-                            }
-                            array_push($propValues, $innerValue['@value']);
-                            array_push($itemPropIDs, $innerValue['property_id']);
+        $itemPropIDs = array();
+        // Fetch the property values from this request.
+        $propValues = array();
+        foreach ($data as $key => $value) {
+            if (is_array($value)) {
+                foreach ($value as $innerKey => $innerValue) {
+                    if (isset($innerValue['property_id']) && !empty($innerValue['@value'])) {
+                        // ignore property ids that are not matching
+                        if (!$allowedProps[$innerValue['property_id']]) {
+                            continue;
                         }
+                        array_push($propValues, $innerValue['@value']);
+                        array_push($itemPropIDs, $innerValue['property_id']);
                     }
                 }
             }
+        }
 
-            // Convert property-ids, property-values into json
-            // This allows us to load this into a derived table in MySQL
-            $jsonPairs = json_encode(array_map(function ($value, $property_id) {
-                return ['value' => $value, 'property_id' => $property_id];
-            }, $propValues, $itemPropIDs), JSON_UNESCAPED_UNICODE);
-            // $logger->info(new Message(print_r($jsonPairs, true)));
+        // Convert property-ids, property-values into json
+        // This allows us to load this into a derived table in MySQL
+        $jsonPairs = json_encode(array_map(function ($value, $property_id) {
+            return ['value' => $value, 'property_id' => $property_id];
+        }, $propValues, $itemPropIDs), JSON_UNESCAPED_UNICODE);
 
-            $services = $this->getServiceLocator();
-            $connection = $services->get('Omeka\Connection');
+        $services = $this->getServiceLocator();
+        $connection = $services->get('Omeka\Connection');
 
-            // Check if same property-id, property-value exists in any other items.
-            $sql = <<<'SQL'
+        // Check if same property-id, property-value exists in any other items.
+        $sql = <<<'SQL'
 SELECT
     CONCAT(
         `vocabulary`.`label`,
@@ -123,23 +124,21 @@ WHERE
             AND derived.property_id = value.property_id
     )
 SQL;
-            $stmt = $connection->executeQuery($sql, [
-                'id' => $itemId,
-                'property_ids' => $itemPropIDs,
-                'property_values' => $propValues,
-                'json_pairs' => $jsonPairs,
-            ], [
-                'property_ids' => \Doctrine\DBAL\Connection::PARAM_STR_ARRAY,
-                'property_values' => \Doctrine\DBAL\Connection::PARAM_STR_ARRAY,
-                'json_pairs' => \PDO::PARAM_STR,
-            ]);
-            $results = $stmt->fetchAll();
-            $logger->info(new Message(print_r($results, true)));
+        $stmt = $connection->executeQuery($sql, [
+            'id' => $itemId,
+            'property_ids' => $itemPropIDs,
+            'property_values' => $propValues,
+            'json_pairs' => $jsonPairs,
+        ], [
+            'property_ids' => \Doctrine\DBAL\Connection::PARAM_STR_ARRAY,
+            'property_values' => \Doctrine\DBAL\Connection::PARAM_STR_ARRAY,
+            'json_pairs' => \PDO::PARAM_STR,
+        ]);
+        $results = $stmt->fetchAll();
 
-            foreach ($results as $result) {
-                $messenger->addError(new Message('Duplicate property value `%s` found for `%s` in #%d', $result['data'], $result['field'], $result['resource_id']));
-                throw new ValidationException('');
-            }
+        foreach ($results as $result) {
+            $messenger->addError(new Message('Duplicate property value `%s` found for `%s` in #%d', $result['data'], $result['field'], $result['resource_id']));
+            throw new ValidationException('');
         }
     }
 }
